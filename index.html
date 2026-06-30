@@ -49,9 +49,9 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🎙️ Dictat → Word</h1>
-  <div class="sub">Dicta en català o castellà, edita el text i exporta-ho a Word. També pots desar l'àudio.<br>
-    <span style="opacity:.75">Versió 6 · 30 juny 2026 · compartir més robust</span></div>
+  <h1>🎙️ Dictat de veu</h1>
+  <div class="sub">Dicta en català o castellà, edita el text i comparteix-lo (Drive, OneDrive, correu…).<br>
+    <span style="opacity:.75">Versió 8 · 30 juny 2026 · un sol botó Compartir</span></div>
 
   <div id="unsupported" class="warn">
     El teu navegador no admet el reconeixement de veu. Obre aquesta pàgina amb <b>Google Chrome</b> o <b>Microsoft Edge</b>.
@@ -90,14 +90,10 @@
     <div class="count"><span id="words">0</span> paraules</div>
     <audio id="player" controls style="display:none"></audio>
     <div class="controls">
-      <button id="wordBtn" class="btn-primary">⬇ Desar Word (.docx)</button>
-      <button id="audioBtn" class="btn-ghost" disabled>⬇ Desar àudio</button>
-    </div>
-    <div class="controls">
-      <button id="shareBtn" class="btn-ghost">📤 Compartir / Drive</button>
+      <button id="shareBtn" class="btn-primary">📤 Compartir / Desar</button>
     </div>
     <div class="hint">
-      <b>Compartir / Drive</b>: al mòbil obre el menú per enviar el Word (i l'àudio si l'has gravat) a <b>Google Drive</b> i triar la carpeta. <b>Desar Word</b> el guarda a Baixades.
+      Obre el menú del mòbil per enviar el <b>text</b> a Google Drive, OneDrive, Gmail, Keep… i triar la carpeta. Si has gravat àudio, també l'inclou. Si el mòbil no deixa compartir, el text es desa a Baixades.
     </div>
   </div>
 </div>
@@ -170,7 +166,6 @@ async function startRec(){
         audioBlob=new Blob(chunks,{type:chunks[0]?chunks[0].type:"audio/webm"});
         audioURL=URL.createObjectURL(audioBlob);
         const p=$("player"); p.src=audioURL; p.style.display="block";
-        $("audioBtn").disabled=false;
       };
       mediaRecorder.start();
     }catch(e){ setStatus("No s'ha pogut accedir al micròfon: "+e.message,false); return; }
@@ -253,36 +248,31 @@ function download(blob, filename){
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename;
   document.body.appendChild(a); a.click(); a.remove();
 }
-$("wordBtn").onclick=()=>{
-  const txt=$("text").value.trim();
-  if(!txt){ alert("No hi ha text per desar."); return; }
-  const bytes=buildDocx($("title").value, txt);
-  download(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}), safeName()+".docx");
-};
 function audioExt(){ return (audioBlob.type.includes("webm"))?"webm":(audioBlob.type.includes("ogg")?"ogg":"audio"); }
-$("audioBtn").onclick=()=>{
-  if(!audioBlob){ return; }
-  download(audioBlob, safeName()+"."+audioExt());
-};
 $("shareBtn").onclick=async()=>{
   const txt=$("text").value.trim();
   if(!txt){ alert("Primer dicta o escriu alguna cosa al quadre."); return; }
-  const type="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  const bytes=buildDocx($("title").value, txt);
-  const files=[ new File([bytes], safeName()+".docx", {type}) ];
-  if(audioBlob){ files.push(new File([audioBlob], safeName()+"."+audioExt(), {type:audioBlob.type})); }
-  if(navigator.canShare && navigator.canShare({files})){
-    try{
-      await navigator.share({files, title:safeName()});
-      return;                       // compartit correctament
-    }catch(e){
-      if(e && e.name==="AbortError") return;   // l'usuari ha cancel·lat el menú
-      alert("No s'ha pogut compartir ("+(e.name||e)+"). Et deso el Word a Baixades.");
+  const title=$("title").value.trim();
+  const content=(title? title+"\n\n":"")+txt;
+  const txtFile=new File([content], safeName()+".txt", {type:"text/plain"});
+  // 1) Provar de compartir el fitxer de text (+ àudio si n'hi ha)
+  const tries=[];
+  if(audioBlob){ tries.push([txtFile, new File([audioBlob], safeName()+"."+audioExt(), {type:audioBlob.type})]); }
+  tries.push([txtFile]);
+  for(const files of tries){
+    if(navigator.canShare && navigator.canShare({files})){
+      try{ await navigator.share({files, title:safeName()}); return; }
+      catch(e){ if(e && e.name==="AbortError") return; }
     }
-  } else {
-    alert("Aquest mòbil no pot compartir aquest tipus de fitxer. Et deso el Word a Baixades; puja'l a Drive des de l'app Drive o Fitxers.");
   }
-  download(new Blob([bytes],{type}), safeName()+".docx");   // pla B: descàrrega
+  // 2) Compartir només el text (gairebé sempre disponible)
+  if(navigator.share){
+    try{ await navigator.share({title:safeName(), text:content}); return; }
+    catch(e){ if(e && e.name==="AbortError") return; }
+  }
+  // 3) Pla B: descarregar el .txt
+  download(txtFile, safeName()+".txt");
+  alert("He desat el text a Baixades (.txt).");
 };
 countWords();
 </script>
