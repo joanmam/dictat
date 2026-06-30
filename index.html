@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dictat → Word</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --soft:#334155; --txt:#e2e8f0;
+    --muted:#94a3b8; --accent:#6366f1; --accent2:#22c55e; --danger:#ef4444;
+    --line:#475569;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg);color:var(--txt);min-height:100vh;padding:16px;}
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-size:1.4rem;margin:.2em 0 .1em;}
+  .sub{color:var(--muted);font-size:.9rem;margin-bottom:18px;}
+  .card{background:var(--card);border:1px solid var(--soft);border-radius:14px;
+    padding:16px;margin-bottom:16px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  label{font-size:.85rem;color:var(--muted);}
+  select,input[type=text]{background:var(--bg);color:var(--txt);border:1px solid var(--line);
+    border-radius:9px;padding:9px 11px;font-size:.95rem;}
+  input[type=text]{flex:1;min-width:180px;}
+  button{border:none;border-radius:11px;padding:13px 18px;font-size:1rem;font-weight:600;
+    cursor:pointer;color:#fff;transition:transform .05s, opacity .2s;}
+  button:active{transform:scale(.97)}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-rec{background:var(--accent2);} .btn-rec.rec{background:var(--danger);}
+  .btn-ghost{background:var(--soft);} .btn-primary{background:var(--accent);}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;}
+  .controls button{flex:1;min-width:130px;}
+  #status{font-size:.85rem;color:var(--muted);margin-top:10px;min-height:1.2em;}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--muted);
+    margin-right:7px;vertical-align:middle;}
+  .dot.live{background:var(--danger);animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  textarea{width:100%;min-height:230px;background:var(--bg);color:var(--txt);
+    border:1px solid var(--line);border-radius:11px;padding:13px;font-size:1.05rem;
+    line-height:1.55;resize:vertical;}
+  .interim{color:var(--muted);font-style:italic;}
+  audio{width:100%;margin-top:12px;}
+  .hint{font-size:.8rem;color:var(--muted);margin-top:8px;line-height:1.5;}
+  .warn{background:#7f1d1d;border:1px solid #b91c1c;color:#fecaca;padding:12px;
+    border-radius:11px;font-size:.9rem;display:none;margin-bottom:16px;}
+  .count{font-size:.8rem;color:var(--muted);margin-top:6px;text-align:right;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ Dictat → Word</h1>
+  <div class="sub">Dicta en català o castellà, edita el text i exporta-ho a Word. També pots desar l'àudio.</div>
+
+  <div id="unsupported" class="warn">
+    El teu navegador no admet el reconeixement de veu. Obre aquesta pàgina amb <b>Google Chrome</b> o <b>Microsoft Edge</b>.
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="lang">Idioma</label><br>
+        <select id="lang">
+          <option value="ca-ES">Català</option>
+          <option value="es-ES">Castellà</option>
+          <option value="en-US">Anglès</option>
+          <option value="fr-FR">Francès</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label for="title">Títol del document</label><br>
+        <input type="text" id="title" placeholder="p. ex. Reunió 17 febrer">
+      </div>
+    </div>
+    <div class="controls">
+      <button id="recBtn" class="btn-rec">● Començar a dictar</button>
+      <button id="clearBtn" class="btn-ghost">Esborrar</button>
+    </div>
+    <div id="status"><span class="dot" id="dot"></span><span id="statusText">A punt.</span></div>
+  </div>
+
+  <div class="card">
+    <textarea id="text" placeholder="Aquí apareixerà el que dictis. Pots editar-ho lliurement."></textarea>
+    <div class="count"><span id="words">0</span> paraules</div>
+    <audio id="player" controls style="display:none"></audio>
+    <div class="controls">
+      <button id="wordBtn" class="btn-primary">⬇ Desar Word (.docx)</button>
+      <button id="audioBtn" class="btn-ghost" disabled>⬇ Desar àudio</button>
+    </div>
+    <div class="hint">
+      El Word i l'àudio es guarden a la carpeta de <b>Baixades</b> del dispositiu. Després els pots moure a la carpeta que vulguis.
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog=null, recording=false, finalText="";
+let mediaRecorder=null, chunks=[], audioBlob=null, audioURL=null, stream=null;
+
+if(!SR){ $("unsupported").style.display="block"; $("recBtn").disabled=true; }
+
+function setStatus(t, live){ $("statusText").textContent=t; $("dot").className="dot"+(live?" live":""); }
+function countWords(){ const w=$("text").value.trim(); $("words").textContent = w?w.split(/\s+/).length:0; }
+$("text").addEventListener("input",()=>{ finalText=$("text").value; countWords(); });
+
+function buildRecognizer(){
+  const r=new SR();
+  r.lang=$("lang").value; r.continuous=true; r.interimResults=true;
+  r.onresult=e=>{
+    let interim="";
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const tr=e.results[i][0].transcript;
+      if(e.results[i].isFinal){ finalText += (finalText && !finalText.endsWith(" ")?" ":"") + tr.trim(); }
+      else interim += tr;
+    }
+    $("text").value = finalText + (interim?(" "+interim):"");
+    countWords();
+  };
+  r.onerror=ev=>{
+    if(ev.error==="not-allowed"||ev.error==="service-not-allowed"){
+      setStatus("Permís de micròfon denegat. Activa'l i torna-ho a provar.",false);
+      stopAll();
+    } else if(ev.error==="no-speech"){ /* ignore */ }
+  };
+  r.onend=()=>{ if(recording){ try{r.start();}catch(e){} } }; // auto-reconnect mentre gravem
+  return r;
+}
+
+async function startRec(){
+  finalText=$("text").value?$("text").value.trim():"";
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    chunks=[]; const mime=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":"";
+    mediaRecorder=new MediaRecorder(stream, mime?{mimeType:mime}:undefined);
+    mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+    mediaRecorder.onstop=()=>{
+      audioBlob=new Blob(chunks,{type:chunks[0]?chunks[0].type:"audio/webm"});
+      audioURL=URL.createObjectURL(audioBlob);
+      const p=$("player"); p.src=audioURL; p.style.display="block";
+      $("audioBtn").disabled=false;
+    };
+    mediaRecorder.start();
+  }catch(e){ setStatus("No s'ha pogut accedir al micròfon: "+e.message,false); return; }
+  recog=buildRecognizer();
+  try{ recog.start(); }catch(e){}
+  recording=true;
+  $("recBtn").textContent="■ Aturar"; $("recBtn").classList.add("rec");
+  $("lang").disabled=true;
+  setStatus("Escoltant… parla amb claredat.",true);
+}
+
+function stopAll(){
+  recording=false;
+  if(recog){ try{recog.stop();}catch(e){} }
+  if(mediaRecorder && mediaRecorder.state!=="inactive"){ try{mediaRecorder.stop();}catch(e){} }
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); }
+  $("recBtn").textContent="● Començar a dictar"; $("recBtn").classList.remove("rec");
+  $("lang").disabled=false;
+  setStatus("Dictat aturat. Pots editar el text i desar-lo.",false);
+}
+
+$("recBtn").onclick=()=>{ recording?stopAll():startRec(); };
+$("clearBtn").onclick=()=>{ if(confirm("Esborrar tot el text?")){ finalText=""; $("text").value=""; countWords(); } };
+
+/* ---------- Exportació a Word (.docx real, sense dependències) ---------- */
+function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// CRC32 + ZIP mínim (store, sense compressió) per generar un .docx vàlid offline
+function crc32(bytes){
+  let c, crc=0xFFFFFFFF;
+  for(let i=0;i<bytes.length;i++){ c=(crc^bytes[i])&0xFF; for(let k=0;k<8;k++) c=c&1?(c>>>1)^0xEDB88320:c>>>1; crc=(crc>>>8)^c; }
+  return (crc^0xFFFFFFFF)>>>0;
+}
+function strBytes(s){ return new TextEncoder().encode(s); }
+function makeZip(files){ // files: [{name, data(Uint8Array)}]
+  const enc=[]; let offset=0; const central=[];
+  const u16=n=>[n&255,(n>>8)&255]; const u32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>24)&255];
+  for(const f of files){
+    const name=strBytes(f.name); const data=f.data; const crc=crc32(data);
+    const local=[].concat([0x50,0x4b,0x03,0x04],u16(20),u16(0),u16(0),u16(0),u16(0),
+      u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0));
+    enc.push(new Uint8Array(local), name, data);
+    central.push({name,crc,len:data.length,offset});
+    offset+=local.length+name.length+data.length;
+  }
+  const cdStart=offset; let cdLen=0;
+  for(const c of central){
+    const h=[].concat([0x50,0x4b,0x01,0x02],u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),
+      u32(c.crc),u32(c.len),u32(c.len),u16(c.name.length),u16(0),u16(0),u16(0),u16(0),
+      u32(0),u32(c.offset));
+    enc.push(new Uint8Array(h), c.name); cdLen+=h.length+c.name.length;
+  }
+  const end=[].concat([0x50,0x4b,0x05,0x06],u16(0),u16(0),u16(central.length),u16(central.length),
+    u32(cdLen),u32(cdStart),u16(0));
+  enc.push(new Uint8Array(end));
+  let total=0; enc.forEach(a=>total+=a.length);
+  const out=new Uint8Array(total); let p=0; enc.forEach(a=>{out.set(a,p);p+=a.length;});
+  return out;
+}
+function buildDocx(title, body){
+  const paras = body.split(/\n+/).filter(p=>p.trim().length).map(p=>
+    `<w:p><w:r><w:t xml:space="preserve">${esc(p)}</w:t></w:r></w:p>`).join("");
+  const titlePara = title.trim()? `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="32"/></w:rPr><w:t xml:space="preserve">${esc(title)}</w:t></w:r></w:p>` : "";
+  const doc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>${titlePara}${paras||'<w:p/>'}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417"/></w:sectPr></w:body></w:document>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  const rels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  return makeZip([
+    {name:"[Content_Types].xml", data:strBytes(ct)},
+    {name:"_rels/.rels", data:strBytes(rels)},
+    {name:"word/document.xml", data:strBytes(doc)}
+  ]);
+}
+function safeName(){ const t=$("title").value.trim()||"Dictat"; return t.replace(/[\\/:*?"<>|]/g,"_"); }
+function download(blob, filename){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$("wordBtn").onclick=()=>{
+  const txt=$("text").value.trim();
+  if(!txt){ alert("No hi ha text per desar."); return; }
+  const bytes=buildDocx($("title").value, txt);
+  download(new Blob([bytes],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}), safeName()+".docx");
+};
+$("audioBtn").onclick=()=>{
+  if(!audioBlob){ return; }
+  const ext=(audioBlob.type.includes("webm"))?"webm":(audioBlob.type.includes("ogg")?"ogg":"audio");
+  download(audioBlob, safeName()+"."+ext);
+};
+countWords();
+</script>
+</body>
+</html>
