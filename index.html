@@ -51,7 +51,7 @@
 <div class="wrap">
   <h1>🎙️ Dictat → Word</h1>
   <div class="sub">Dicta en català o castellà, edita el text i exporta-ho a Word. També pots desar l'àudio.<br>
-    <span style="opacity:.75">Versió 5 · 30 juny 2026 · fusió anti-repeticions + Compartir a Drive</span></div>
+    <span style="opacity:.75">Versió 6 · 30 juny 2026 · compartir més robust</span></div>
 
   <div id="unsupported" class="warn">
     El teu navegador no admet el reconeixement de veu. Obre aquesta pàgina amb <b>Google Chrome</b> o <b>Microsoft Edge</b>.
@@ -266,16 +266,23 @@ $("audioBtn").onclick=()=>{
 };
 $("shareBtn").onclick=async()=>{
   const txt=$("text").value.trim();
-  if(!txt){ alert("No hi ha text per compartir."); return; }
+  if(!txt){ alert("Primer dicta o escriu alguna cosa al quadre."); return; }
+  const type="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const bytes=buildDocx($("title").value, txt);
-  const files=[ new File([bytes], safeName()+".docx", {type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}) ];
+  const files=[ new File([bytes], safeName()+".docx", {type}) ];
   if(audioBlob){ files.push(new File([audioBlob], safeName()+"."+audioExt(), {type:audioBlob.type})); }
   if(navigator.canShare && navigator.canShare({files})){
-    try{ await navigator.share({files, title:safeName()}); }
-    catch(e){ /* cancel·lat per l'usuari */ }
+    try{
+      await navigator.share({files, title:safeName()});
+      return;                       // compartit correctament
+    }catch(e){
+      if(e && e.name==="AbortError") return;   // l'usuari ha cancel·lat el menú
+      alert("No s'ha pogut compartir ("+(e.name||e)+"). Et deso el Word a Baixades.");
+    }
   } else {
-    alert("Aquest navegador no permet compartir fitxers. Fes servir «Desar Word» i després puja'l a Drive manualment.");
+    alert("Aquest mòbil no pot compartir aquest tipus de fitxer. Et deso el Word a Baixades; puja'l a Drive des de l'app Drive o Fitxers.");
   }
+  download(new Blob([bytes],{type}), safeName()+".docx");   // pla B: descàrrega
 };
 countWords();
 </script>
