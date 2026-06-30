@@ -50,7 +50,8 @@
 <body>
 <div class="wrap">
   <h1>🎙️ Dictat → Word</h1>
-  <div class="sub">Dicta en català o castellà, edita el text i exporta-ho a Word. També pots desar l'àudio.</div>
+  <div class="sub">Dicta en català o castellà, edita el text i exporta-ho a Word. També pots desar l'àudio.<br>
+    <span style="opacity:.75">Versió 4 · 30 juny 2026 · fusió anti-repeticions</span></div>
 
   <div id="unsupported" class="warn">
     El teu navegador no admet el reconeixement de veu. Obre aquesta pàgina amb <b>Google Chrome</b> o <b>Microsoft Edge</b>.
@@ -109,9 +110,20 @@ if(!SR){ $("unsupported").style.display="block"; $("recBtn").disabled=true; }
 function setStatus(t, live){ $("statusText").textContent=t; $("dot").className="dot"+(live?" live":""); }
 function countWords(){ const w=$("text").value.trim(); $("words").textContent = w?w.split(/\s+/).length:0; }
 function norm(s){ return s.replace(/\s+/g,' ').trim(); }
+// Fusiona dos fragments retallant el solapament (sufix d'a == prefix de b), per paraules
+function mergeOverlap(a,b){
+  a=norm(a); b=norm(b);
+  if(!a) return b; if(!b) return a;
+  const aw=a.split(' '), bw=b.split(' ');
+  let ov=0; const max=Math.min(aw.length,bw.length);
+  for(let k=max;k>0;k--){
+    if(aw.slice(aw.length-k).join(' ').toLowerCase()===bw.slice(0,k).join(' ').toLowerCase()){ ov=k; break; }
+  }
+  return norm(a+" "+bw.slice(ov).join(' '));
+}
 function render(interim){
-  const parts=[committed, sessionFinal, interim||""].filter(x=>x && x.trim());
-  $("text").value = norm(parts.join(' '));
+  const base=mergeOverlap(committed, sessionFinal);
+  $("text").value = norm((interim&&interim.trim()) ? base+" "+interim : base);
   countWords();
 }
 $("text").addEventListener("input",()=>{ committed=$("text").value; sessionFinal=""; countWords(); });
@@ -123,7 +135,7 @@ function buildRecognizer(){
     let sf="", interim="";
     for(let i=0;i<e.results.length;i++){
       const tr=e.results[i][0].transcript;
-      if(e.results[i].isFinal) sf+=tr+" "; else interim+=tr+" ";
+      if(e.results[i].isFinal) sf=mergeOverlap(sf,tr); else interim+=tr+" ";
     }
     sessionFinal=sf;
     render(interim);
@@ -135,7 +147,7 @@ function buildRecognizer(){
     } else if(ev.error==="no-speech"){ /* ignore */ }
   };
   r.onend=()=>{
-    if(sessionFinal.trim()){ committed=norm(committed+" "+sessionFinal); sessionFinal=""; }
+    if(sessionFinal.trim()){ committed=mergeOverlap(committed, sessionFinal); sessionFinal=""; }
     if(recording){ try{r.start();}catch(e){} }
   };
   return r;
