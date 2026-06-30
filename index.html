@@ -101,27 +101,32 @@
 <script>
 const $ = id => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recog=null, recording=false, finalText="";
+let recog=null, recording=false, committed="", sessionFinal="";
 let mediaRecorder=null, chunks=[], audioBlob=null, audioURL=null, stream=null;
 
 if(!SR){ $("unsupported").style.display="block"; $("recBtn").disabled=true; }
 
 function setStatus(t, live){ $("statusText").textContent=t; $("dot").className="dot"+(live?" live":""); }
 function countWords(){ const w=$("text").value.trim(); $("words").textContent = w?w.split(/\s+/).length:0; }
-$("text").addEventListener("input",()=>{ finalText=$("text").value; countWords(); });
+function norm(s){ return s.replace(/\s+/g,' ').trim(); }
+function render(interim){
+  const parts=[committed, sessionFinal, interim||""].filter(x=>x && x.trim());
+  $("text").value = norm(parts.join(' '));
+  countWords();
+}
+$("text").addEventListener("input",()=>{ committed=$("text").value; sessionFinal=""; countWords(); });
 
 function buildRecognizer(){
   const r=new SR();
   r.lang=$("lang").value; r.continuous=true; r.interimResults=true;
   r.onresult=e=>{
-    let interim="";
-    for(let i=e.resultIndex;i<e.results.length;i++){
+    let sf="", interim="";
+    for(let i=0;i<e.results.length;i++){
       const tr=e.results[i][0].transcript;
-      if(e.results[i].isFinal){ finalText += (finalText && !finalText.endsWith(" ")?" ":"") + tr.trim(); }
-      else interim += tr;
+      if(e.results[i].isFinal) sf+=tr+" "; else interim+=tr+" ";
     }
-    $("text").value = finalText + (interim?(" "+interim):"");
-    countWords();
+    sessionFinal=sf;
+    render(interim);
   };
   r.onerror=ev=>{
     if(ev.error==="not-allowed"||ev.error==="service-not-allowed"){
@@ -129,12 +134,15 @@ function buildRecognizer(){
       stopAll();
     } else if(ev.error==="no-speech"){ /* ignore */ }
   };
-  r.onend=()=>{ if(recording){ try{r.start();}catch(e){} } }; // auto-reconnect mentre gravem
+  r.onend=()=>{
+    if(sessionFinal.trim()){ committed=norm(committed+" "+sessionFinal); sessionFinal=""; }
+    if(recording){ try{r.start();}catch(e){} }
+  };
   return r;
 }
 
 async function startRec(){
-  finalText=$("text").value?$("text").value.trim():"";
+  committed=$("text").value?norm($("text").value):""; sessionFinal="";
   if($("saveAudio").checked){
     try{
       stream=await navigator.mediaDevices.getUserMedia({audio:true});
@@ -169,7 +177,7 @@ function stopAll(){
 }
 
 $("recBtn").onclick=()=>{ recording?stopAll():startRec(); };
-$("clearBtn").onclick=()=>{ if(confirm("Esborrar tot el text?")){ finalText=""; $("text").value=""; countWords(); } };
+$("clearBtn").onclick=()=>{ if(confirm("Esborrar tot el text?")){ committed=""; sessionFinal=""; $("text").value=""; countWords(); } };
 
 /* ---------- Exportació a Word (.docx real, sense dependències) ---------- */
 function esc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
