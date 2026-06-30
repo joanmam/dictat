@@ -72,6 +72,11 @@
         <input type="text" id="title" placeholder="p. ex. Reunió 17 febrer">
       </div>
     </div>
+    <div class="row" style="margin-top:12px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--txt)">
+        <input type="checkbox" id="saveAudio"> Desar també l'àudio <span style="color:var(--muted)">(al mòbil sol impedir la transcripció)</span>
+      </label>
+    </div>
     <div class="controls">
       <button id="recBtn" class="btn-rec">● Començar a dictar</button>
       <button id="clearBtn" class="btn-ghost">Esborrar</button>
@@ -130,21 +135,23 @@ function buildRecognizer(){
 
 async function startRec(){
   finalText=$("text").value?$("text").value.trim():"";
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    chunks=[]; const mime=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":"";
-    mediaRecorder=new MediaRecorder(stream, mime?{mimeType:mime}:undefined);
-    mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
-    mediaRecorder.onstop=()=>{
-      audioBlob=new Blob(chunks,{type:chunks[0]?chunks[0].type:"audio/webm"});
-      audioURL=URL.createObjectURL(audioBlob);
-      const p=$("player"); p.src=audioURL; p.style.display="block";
-      $("audioBtn").disabled=false;
-    };
-    mediaRecorder.start();
-  }catch(e){ setStatus("No s'ha pogut accedir al micròfon: "+e.message,false); return; }
+  if($("saveAudio").checked){
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      chunks=[]; const mime=MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":"";
+      mediaRecorder=new MediaRecorder(stream, mime?{mimeType:mime}:undefined);
+      mediaRecorder.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+      mediaRecorder.onstop=()=>{
+        audioBlob=new Blob(chunks,{type:chunks[0]?chunks[0].type:"audio/webm"});
+        audioURL=URL.createObjectURL(audioBlob);
+        const p=$("player"); p.src=audioURL; p.style.display="block";
+        $("audioBtn").disabled=false;
+      };
+      mediaRecorder.start();
+    }catch(e){ setStatus("No s'ha pogut accedir al micròfon: "+e.message,false); return; }
+  }
   recog=buildRecognizer();
-  try{ recog.start(); }catch(e){}
+  try{ recog.start(); }catch(e){ setStatus("No s'ha pogut iniciar el dictat: "+e.message,false); return; }
   recording=true;
   $("recBtn").textContent="■ Aturar"; $("recBtn").classList.add("rec");
   $("lang").disabled=true;
